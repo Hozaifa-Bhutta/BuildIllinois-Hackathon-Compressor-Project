@@ -19,8 +19,8 @@ batch_size = 128
 # number of channels in the iamge
 nc = 3
 stats = (0.5, ), (0.5, ) # normalizes values between -1-1, makes it more convenient for model training
-
-
+num_epochs = 3
+lr = 0.0002
 
 device = torch.device("mps") 
 dataset = datasets.ImageFolder("/Users/hozaifa/Documents/Coding projects/Sigaida/main_data/", transform = tt.Compose([
@@ -75,6 +75,7 @@ class Compressor(nn.Module):
             nn.BatchNorm2d(512), # normalizes data
             nn.ReLU(True),
 
+
             nn.Flatten()
             # output size: batch_size x 4608
         )
@@ -110,24 +111,51 @@ class Compressor(nn.Module):
         )
     def forward(self, input):
         encoded = self.encoder(input)
-        encoded_expanded = encoded[:, :, None, None]
+        encoded_expanded = encoded[:, :, None, None] # treats the vector as an image
         decoded = self.decoder(encoded_expanded)
         return decoded
     
 
 
-compressor = Compressor().to(device = torch.device("mps"))
+compressor = Compressor().to(device = device)
+
+def rgb2gray(rgb):
+    r, g, b = rgb[0,:,:], rgb[1,:,:], rgb[2,:,:]
+    gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
+    return gray
 
 
 
-for batch_num, (images,_ ) in enumerate(train_dataloader):
+optimizer = torch.optim.Adam(compressor.parameters(), lr = lr, betas=(0.5, 0.999))
+for epoch in range(num_epochs):
+    for batch_num, (images,_ ) in enumerate(train_dataloader):
+        images = images.to(torch.device("mps"))
+        print(f"image size {images.size()}")
 
-    images = images.to(torch.device("mps"))
-    print(f"image size {images.size()}")
-    encoded = compressor(images)
-    print(f"encoded size: {encoded.size()}")
+        encoded = compressor(images)
+        print(f"encoded size: {encoded.size()}")
 
-    break
+        # for each image, compute the saliency 
+        loss = 0
+        i = 0
+        for image in images:
+            # saliency model
+            # saliency = cv2.saliency.StaticSaliencySpectralResidual_create()
+            # image_numpy = image.detach().cpu().numpy() # converts pytorch tensor to numpy array for opencv compatiability
+            # print(image_numpy.shape)
+            # # converts image to gray scale
+            # image_numpy = rgb2gray(image_numpy)
+            # print(image_numpy.shape)
+            # # compute saliency
+            # (success, saliencyMap) = saliency.computeSaliency(image_numpy)
+            # saliencyMap = (saliencyMap * 255).astype("uint8") 
+            # print(encoded[0] - image)
+            exit()
+
+
+
+
+        break
 
 
 # loading batch
@@ -136,7 +164,6 @@ for batch_num, (images,_ ) in enumerate(train_dataloader):
 # opt_
 # encoded = encoder(batch)
 # gen_image = decoder(encoded) # output the decoded value
-# loss = nn.BCELoss()
 
 # loss = (gen_image - batch)^2 * (0.5 + saliency_map )
 
