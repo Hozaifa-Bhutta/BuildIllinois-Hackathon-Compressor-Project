@@ -44,7 +44,7 @@ class Compressor(nn.Module):
     """This class is the template for our compressor module"""
     def __init__(self):
         super(Compressor, self).__init__()
-        self.model = nn.Sequential (
+        self.encoder = nn.Sequential (
             # input size: batch_size x 3 x 128 x 128
             nn.Conv2d(nc, 128, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(128), # normalizes data
@@ -71,29 +71,77 @@ class Compressor(nn.Module):
             nn.ReLU(True),
 
             # input size: batch_size x 512 x 4 x 4
-            nn.Conv2d(512, 512, kernel_size=4, stride =2, padding=1),
+            nn.Conv2d(512, 512, kernel_size=4, stride =1, padding=1),
             nn.BatchNorm2d(512), # normalizes data
             nn.ReLU(True),
-
             nn.Flatten()
-            # output size: batch_size x 2048
+            # output size: batch_size x 4608
+        )
+
+        self.decoder = nn.Sequential(
+            # input size: batch_size x 4608
+            nn.ConvTranspose2d(4608, 512, kernel_size=4, stride=1, padding=0, bias=False), # upscales image  (can cause artifacts, look into this)
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 512, 4, 4;
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),  
+
+            # input size: batch_size, 256, 8, 8;
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 128, 16, 16;
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 64, 32, 32;
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 32, 64, 64;
+            nn.ConvTranspose2d(32, nc, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Tanh()
+            # output size: batch_size x nc x 128 x 128
+            
+
         )
     def forward(self, input):
-        return self.model(input) 
-    
+        encoded = self.encoder(input)
+        encoded_expanded = encoded[:, :, None, None]
+        decoded = self.decoder(encoded_expanded)
+        return decoded
 
 
 compressor = Compressor().to(device = torch.device("mps"))
 
-for batch_num, (images,_ ) in enumerate(train_dataloader):
+#write a cost function that compares the output image to the input image
+def cost_function(output, input, saliency_map):
 
-    images = images.to(torch.device("mps"))
+  diff = torch.flatten(output - input)
+  #convert diff to a 1d numpy array
+  diff = diff.cpu().numpy()
+  diff *= saliency_map
+  return np.dot(diff, diff)
+
+
+for images in train_dataloader:
+    images = images[0].to(torch.device("mps"))
     print(f"image size {images.size()}")
-    # encoded = Compressor(images)
-    # print(f"encoded size: {encoded.size()}")
+    # print(images)
+    encoded = compressor(images)
+    print(f"encoded size: {encoded.size()}")
+    #make a saliency map of all ones
+    saliency_map = np.ones(128 * 3 * 128 * 128)
+    print(cost_function(encoded, images, saliency_map))
+    plt.figure(figsize=(8,8)) # 8 by 8 grid
+    plt.title("Output Images")
+    plt.axis("off")
+    plt.imshow(np.transpose(make_grid(encoded.to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
+    plt.show()
 
     break
-
 
 # loading batch
 
