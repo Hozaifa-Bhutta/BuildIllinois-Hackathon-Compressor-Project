@@ -19,7 +19,7 @@ batch_size = 128
 # number of channels in the iamge
 nc = 3
 stats = (0.5, ), (0.5, ) # normalizes values between -1-1, makes it more convenient for model training
-num_epochs = 3
+num_epochs = 100
 lr = 0.0002
 
 device = torch.device("mps") 
@@ -48,32 +48,32 @@ class Compressor(nn.Module):
             # input size: batch_size x 3 x 128 x 128
             nn.Conv2d(nc, 128, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(128), # normalizes data
-            nn.ReLU(True),
+            nn.LeakyReLU(0.2, inplace=True),
 
             # input size: batch_size x 128 x 64 x 64
             nn.Conv2d(128, 256, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(256), # normalizes data
-            nn.ReLU(True),
+            nn.LeakyReLU(0.2, inplace=True),
             
             # input size: batch_size x 256 x 32 x 32
             nn.Conv2d(256, 512, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(512), # normalizes data
-            nn.ReLU(True),
+            nn.LeakyReLU(0.2, inplace=True),
 
             # input size: batch_size x 512 x 16 x 16
             nn.Conv2d(512, 512, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(512), # normalizes data
-            nn.ReLU(True),
+            nn.LeakyReLU(0.2, inplace=True),
 
             # input size: batch_size x 512 x 8 x 8
             nn.Conv2d(512, 512, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(512), # normalizes data
-            nn.ReLU(True),
+            nn.LeakyReLU(0.2, inplace=True),
 
             # input size: batch_size x 512 x 4 x 4
             nn.Conv2d(512, 512, kernel_size=4, stride =1, padding=1),
             nn.BatchNorm2d(512), # normalizes data
-            nn.ReLU(True),
+            nn.LeakyReLU(0.2, inplace=True),
 
 
             nn.Flatten()
@@ -83,27 +83,34 @@ class Compressor(nn.Module):
         self.decoder = nn.Sequential(
             # input size: batch_size x 4608
             nn.ConvTranspose2d(4608, 512, kernel_size=4, stride=1, padding=0, bias=False), # upscales image  (can cause artifacts, look into this)
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(512), # normalizes data
+            nn.ReLU(True), # activation function that turns 0s into 1s
 
             # input size: batch_size, 512, 4, 4;
             nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(256), # normalizes data
+            nn.ReLU(True), # activation function that turns 0s into 1s
 
             # input size: batch_size, 256, 8, 8;
             nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(128), # normalizes data
+            nn.ReLU(True), # activation function that turns 0s into 1s
+
 
             # input size: batch_size, 128, 16, 16;
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(64), # normalizes data
+            nn.ReLU(True), # activation function that turns 0s into 1s
+
 
             # input size: batch_size, 64, 32, 32;
             nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(32), # normalizes data
+            nn.ReLU(True), # activation function that turns 0s into 1s
+
 
             # input size: batch_size, 32, 64, 64;
             nn.ConvTranspose2d(32, nc, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
             nn.Tanh()
             # output size: batch_size x nc x 128 x 128
             
@@ -125,37 +132,30 @@ def rgb2gray(rgb):
     return gray
 
 
+def cost_function(output, input):
 
-optimizer = torch.optim.Adam(compressor.parameters(), lr = lr, betas=(0.5, 0.999))
+  diff = torch.flatten(output - input) # subtract them from each other
+  return torch.dot(diff, diff) # dot product with itself gives the square of the sum of the components
+
+optimizer = torch.optim.Adam(compressor.parameters(), lr = lr, betas=(0.5, 0.999)) # defines optimizer
+loss_function = nn.MSELoss(reduction="sum") # mean squared error loss
+size = len(train_dataloader) # number of batches
 for epoch in range(num_epochs):
+    print(f"Epoch: {epoch}")
+    print("######################################")
     for batch_num, (images,_ ) in enumerate(train_dataloader):
+        print(f"batch number: {batch_num}/{size}")
         images = images.to(torch.device("mps"))
-        print(f"image size {images.size()}")
+        encoded_images = compressor(images) # generates images
 
-        encoded = compressor(images)
-        print(f"encoded size: {encoded.size()}")
+        #  compute mean squared error
+        loss = loss_function(images, encoded_images)
+        loss.backward()
+        optimizer.step()
 
-        # for each image, compute the saliency 
-        loss = 0
-        i = 0
-        for image in images:
-            # saliency model
-            # saliency = cv2.saliency.StaticSaliencySpectralResidual_create()
-            # image_numpy = image.detach().cpu().numpy() # converts pytorch tensor to numpy array for opencv compatiability
-            # print(image_numpy.shape)
-            # # converts image to gray scale
-            # image_numpy = rgb2gray(image_numpy)
-            # print(image_numpy.shape)
-            # # compute saliency
-            # (success, saliencyMap) = saliency.computeSaliency(image_numpy)
-            # saliencyMap = (saliencyMap * 255).astype("uint8") 
-            # print(encoded[0] - image)
-            exit()
+    print(f"loss: {loss.item()}")
 
 
-
-
-        break
 
 
 # loading batch
