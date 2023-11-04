@@ -20,6 +20,8 @@ batch_size = 128
 nc = 3
 stats = (0.5, ), (0.5, ) # normalizes values between -1-1, makes it more convenient for model training
 
+
+
 device = torch.device("mps") 
 dataset = datasets.ImageFolder("/Users/hozaifa/Documents/Coding projects/Sigaida/main_data/", transform = tt.Compose([
     tt.Resize(image_size), # resizes it to 'image_size'
@@ -31,18 +33,18 @@ dataset = datasets.ImageFolder("/Users/hozaifa/Documents/Coding projects/Sigaida
 train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True) # batches training_dataset up and makes it iterable
 
 # uncomment code below to display a plot of training images
-example_batch = next(iter(train_dataloader))
-plt.figure(figsize=(8,8)) # 8 by 8 grid
-plt.title("Training Images")
-plt.axis("off")
-plt.imshow(np.transpose(make_grid(example_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
-plt.show()
+# example_batch = next(iter(train_dataloader))
+# plt.figure(figsize=(8,8)) # 8 by 8 grid
+# plt.title("Training Images")
+# plt.axis("off")
+# plt.imshow(np.transpose(make_grid(example_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
+# plt.show()
 
 class Compressor(nn.Module):
     """This class is the template for our compressor module"""
     def __init__(self):
         super(Compressor, self).__init__()
-        self.model = nn.Sequential (
+        self.encoder = nn.Sequential (
             # input size: batch_size x 3 x 128 x 128
             nn.Conv2d(nc, 128, kernel_size=4, stride =2, padding=1),
             nn.BatchNorm2d(128), # normalizes data
@@ -69,26 +71,61 @@ class Compressor(nn.Module):
             nn.ReLU(True),
 
             # input size: batch_size x 512 x 4 x 4
-            nn.Conv2d(512, 512, kernel_size=4, stride =2, padding=1),
+            nn.Conv2d(512, 512, kernel_size=4, stride =1, padding=1),
             nn.BatchNorm2d(512), # normalizes data
             nn.ReLU(True),
 
             nn.Flatten()
-            # output size: batch_size x 2048
+            # output size: batch_size x 4608
+        )
+
+        self.decoder = nn.Sequential(
+            # input size: batch_size x 4608
+            nn.ConvTranspose2d(4608, 512, kernel_size=4, stride=1, padding=0, bias=False), # upscales image  (can cause artifacts, look into this)
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 512, 4, 4;
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 256, 8, 8;
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 128, 16, 16;
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 64, 32, 32;
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # input size: batch_size, 32, 64, 64;
+            nn.ConvTranspose2d(32, nc, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Tanh()
+            # output size: batch_size x nc x 128 x 128
+            
+
         )
     def forward(self, input):
-        return self.model(input) 
+        encoded = self.encoder(input)
+        encoded_expanded = encoded[:, :, None, None]
+        decoded = self.decoder(encoded_expanded)
+        return decoded
     
 
 
 compressor = Compressor().to(device = torch.device("mps"))
 
+
+
 for batch_num, (images,_ ) in enumerate(train_dataloader):
 
     images = images.to(torch.device("mps"))
     print(f"image size {images.size()}")
-    # encoded = Compressor(images)
-    # print(f"encoded size: {encoded.size()}")
+    encoded = compressor(images)
+    print(f"encoded size: {encoded.size()}")
 
     break
 
