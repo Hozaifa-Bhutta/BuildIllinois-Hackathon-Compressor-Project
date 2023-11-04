@@ -1,5 +1,4 @@
 import os
-import torch.backends.cudnn as cudnn
 from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
 from torchvision import datasets
@@ -20,8 +19,8 @@ batch_size = 128
 nc = 3
 stats = (0.5, ), (0.5, ) # normalizes values between -1-1, makes it more convenient for model training
 
-device = torch.device("mps") 
-dataset = datasets.ImageFolder("/Users/hozaifa/Documents/Coding projects/Sigaida/main_data/", transform = tt.Compose([
+device = torch.device("mps")
+dataset = datasets.ImageFolder("../images", transform = tt.Compose([
     tt.Resize(image_size), # resizes it to 'image_size'
     tt.CenterCrop(image_size),
     tt.ToTensor(),
@@ -31,7 +30,10 @@ dataset = datasets.ImageFolder("/Users/hozaifa/Documents/Coding projects/Sigaida
 train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True) # batches training_dataset up and makes it iterable
 
 # uncomment code below to display a plot of training images
-example_batch = next(iter(train_dataloader))
+iterator = iter(train_dataloader)
+next(iterator)
+example_batch = next(iterator)
+# example_batch = train_dataloader.__iter__().__next__()
 plt.figure(figsize=(8,8)) # 8 by 8 grid
 plt.title("Training Images")
 plt.axis("off")
