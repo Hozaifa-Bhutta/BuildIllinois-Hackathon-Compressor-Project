@@ -23,7 +23,7 @@ stats = (0.5, ), (0.5, ) # normalizes values between -1-1, makes it more conveni
 device = torch.device("mps") 
 dataset = datasets.ImageFolder("/Users/hozaifa/Documents/Coding projects/Sigaida/main_data/", transform = tt.Compose([
     tt.Resize(image_size), # resizes it to 'image_size'
-    # tt.CenterCrop(image_size),
+    tt.CenterCrop(image_size),
     tt.ToTensor(),
     tt.Normalize(*stats) # normalizes values between -1 to 1, makes it more convenient for model training
 ]))
@@ -38,10 +38,10 @@ plt.axis("off")
 plt.imshow(np.transpose(make_grid(example_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
 plt.show()
 
-class Encoder(nn.Module):
+class Compressor(nn.Module):
     """This class is the template for our compressor module"""
     def __init__(self):
-        super(Encoder, self).__init__()
+        super(Compressor, self).__init__()
         self.model = nn.Sequential (
             # input size: batch_size x 3 x 128 x 128
             nn.Conv2d(nc, 128, kernel_size=4, stride =2, padding=1),
@@ -80,54 +80,17 @@ class Encoder(nn.Module):
         return self.model(input) 
     
 
-class decoder(nn.Module):
-    def __init__(self):
-        super(decoder, self).__init__()
-        self.main = nn.Sequential(
-            # input layer
 
-            # input size: batch size x 2048
-            nn.ConvTranspose2d(2048, 64 * 8, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(65 * 8),
-            nn.ReLU(True),
+compressor = Compressor().to(device = torch.device("mps"))
 
-            # 1st hidden layer
-            nn.ConvTranspose2d(64 * 8, 64 * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64 * 4),
-            nn.ReLU(True),
+for batch_num, (images,_ ) in enumerate(train_dataloader):
 
-            # 2nd hidden layer
-            nn.ConvTranspose2d(64 * 4, 64 * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64 * 2),
-            nn.ReLU(True),
+    images = images.to(torch.device("mps"))
+    print(f"image size {images.size()}")
+    # encoded = Compressor(images)
+    # print(f"encoded size: {encoded.size()}")
 
-
-            # 3rd hidden layer
-            nn.ConvTranspose2d(64 * 2, 64, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.ReLU(True),
-
-            # output layer
-            nn.ConvTranspose2d(64, nc, 4, 2, 1, bias=False),
-            nn.Tanh()
-        )
-
-    def forward(self, input):
-        return self.main(input)
-    
-
-encoder = Encoder().to(device = torch.device("mps"))
-
-# for batch_num, (images,_ ) in enumerate(train_dataloader):
-
-#     images = images.to(torch.device("mps"))
-#     print(f"image size {images.size()}")
-#     encoded = encoder(images)
-#     print(f"encoded size: {encoded.size()}")
-#     decoded = decoder(encoded)
-#     print(f"encoded size: {encoded.size()}")
-
-#     break
+    break
 
 
 # loading batch
