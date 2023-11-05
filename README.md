@@ -1,2 +1,6 @@
 # BuildIllinois-Hackathon-Compressor-Project
-#1 project in BuildIllinois
+Proof of concept so far
+
+Run compressor.py to train the model (make sure to adjust directory accordingly)
+
+Run load_data.py to test the model (make sure to adjust the directory)
