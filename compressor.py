@@ -14,7 +14,7 @@ import os
 import numpy as np
 
 image_size = 128
-batch_size = 128
+batch_size = 20
 # number of channels in the iamge
 nc = 3
 stats = (0.5, ), (0.5, ) # normalizes values between -1-1, makes it more convenient for model training
@@ -30,15 +30,15 @@ dataset = datasets.ImageFolder("../images", transform = tt.Compose([
 train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True) # batches training_dataset up and makes it iterable
 
 # uncomment code below to display a plot of training images
-iterator = iter(train_dataloader)
-next(iterator)
-example_batch = next(iterator)
-# example_batch = train_dataloader.__iter__().__next__()
-plt.figure(figsize=(8,8)) # 8 by 8 grid
-plt.title("Training Images")
-plt.axis("off")
-plt.imshow(np.transpose(make_grid(example_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
-plt.show()
+# iterator = iter(train_dataloader)
+# next(iterator)
+# example_batch = next(iterator)
+# # example_batch = train_dataloader.__iter__().__next__()
+# plt.figure(figsize=(8,8)) # 8 by 8 grid
+# plt.title("Training Images")
+# plt.axis("off")
+# plt.imshow(np.transpose(make_grid(example_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
+# plt.show()
 
 class Compressor(nn.Module):
     """This class is the template for our compressor module"""
@@ -116,32 +116,80 @@ class Compressor(nn.Module):
 
 compressor = Compressor().to(device = torch.device("mps"))
 
+loss = nn.MSELoss(reduction='sum')
+
 #write a cost function that compares the output image to the input image
-def cost_function(output, input, saliency_map):
-
-  diff = torch.flatten(output - input)
-  #convert diff to a 1d numpy array
-  diff = diff.cpu().numpy()
+def cost_function(output, input):
+  saliency_map = make_saliency_maps(input).to(torch.device("mps"))
+  diff = (output - input)
   diff *= saliency_map
-  return np.dot(diff, diff)
+  #convert diff to a 1d numpy array
+  diff = torch.flatten(diff)
+  return torch.dot(diff, diff)
+
+saliency = cv2.saliency.StaticSaliencySpectralResidual_create()
+
+def make_grayscale(array):
+  #array is a 3 by 128 by 128 tensor
+  return 0.299 * array[0] + 0.587 *array[1] + 0.114 * array[2]
+
+def make_saliency_maps(images: torch.Tensor):
+  #image is a 3 by 128 by 128 tensor
+  allSaliencyMaps = np.ndarray((images.shape[0], 3, 128, 128), dtype=np.float32)
+  numImages = images.shape[0]
+  for idx in range(numImages):
+    image = images[idx]
+    array = image.cpu().numpy()
+    (success, saliencyMap) = saliency.computeSaliency(make_grayscale(array))
+    allSaliencyMaps[idx][0] = saliencyMap
+    allSaliencyMaps[idx][1] = saliencyMap
+    allSaliencyMaps[idx][2] = saliencyMap
+  return torch.tensor(allSaliencyMaps)
 
 
+num_epochs = 10
+
+optimizer = torch.optim.Adam(compressor.parameters(), lr = 10e-3, betas=(0.5, 0.999)) # defines optimizer
+loss_function = nn.MSELoss(reduction="sum") # mean squared error loss
+size = len(train_dataloader) # number of batches
+image = train_dataloader.__iter__().__next__()[0]
+print(image.size())
+# exit(0)
+# for epoch in range(num_epochs*1000):
+#     print(f"Epoch: {epoch}")
+#     print("######################################")
+#     # for batch_num, (images,_ ) in enumerate(train_dataloader):
+#       # print(f"batch number: {batch_num}/{size}")
+#     image = image.to(torch.device("mps"))
+#     encoded_image = compressor(image) # generates images
+
+#     #  compute mean squared error
+#     loss = loss_function(image, encoded_image)
+#     loss.backward()
+#     optimizer.step()
+#     print(loss)
+
+#     print(f"loss: {loss.item()}")
+
+# torch.save(compressor.state_dict(), "compressor.pth")
 for images in train_dataloader:
-    images = images[0].to(torch.device("mps"))
-    print(f"image size {images.size()}")
-    # print(images)
-    encoded = compressor(images)
-    print(f"encoded size: {encoded.size()}")
-    #make a saliency map of all ones
-    saliency_map = np.ones(128 * 3 * 128 * 128)
-    print(cost_function(encoded, images, saliency_map))
-    plt.figure(figsize=(8,8)) # 8 by 8 grid
-    plt.title("Output Images")
-    plt.axis("off")
-    plt.imshow(np.transpose(make_grid(encoded.to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
-    plt.show()
+  images = images[0].to(torch.device("mps"))
+  make_saliency_maps(images)
+  # break
+  print(f"image size {images.size()}")
+  # print(images)
+  encoded = compressor(images)
+  print(f"encoded size: {encoded.size()}")
+  #make a saliency map of all ones
+  saliency_map = np.ones(128 * 3 * 128 * 128)
+  print(cost_function(encoded, images))
+  plt.figure(figsize=(8,8)) # 8 by 8 grid
+  plt.title("Output Images")
+  plt.axis("off")
+  plt.imshow(np.transpose(make_grid(encoded.to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
+  plt.show()
 
-    break
+  break
 
 # loading batch
 
